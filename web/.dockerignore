@@ -1,0 +1,16 @@
+# Without this, the Dockerfile's `COPY . .` would bake .env into an image
+# layer. VITE_* values are passed as --build-arg instead (Vite inlines them at
+# build time, so they cannot come from runtime env vars anyway).
+.env
+.env.local
+.env.*.local
+
+node_modules
+dist
+.vite
+*.log
+.git
+.vscode
+.idea
+Dockerfile
+.dockerignore

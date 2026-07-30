@@ -1,0 +1,33 @@
+# Restored after the repo-root files were deleted during the api/ + web/
+# restructure. This is the only thing keeping api/.env (live database
+# credentials, JWT secret, Cloudinary secret, Gemini key) out of git —
+# web/.gitignore covers *.local but NOT .env, so do not rely on it.
+node_modules/
+dist/
+build/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+*.local
+
+# Prisma
+api/prisma/dev.db
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite
+web/dist/
+web/.vite/

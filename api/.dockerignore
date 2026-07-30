@@ -1,0 +1,16 @@
+# Without this, the Dockerfile's `COPY . .` would bake .env (live database
+# credentials, JWT secret, Cloudinary secret, Gemini key) into an image layer.
+# Real values are injected as container env vars at runtime instead.
+.env
+.env.local
+.env.*.local
+
+node_modules
+dist
+prisma/dev.db
+*.log
+.git
+.vscode
+.idea
+Dockerfile
+.dockerignore

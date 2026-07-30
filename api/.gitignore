@@ -1,0 +1,10 @@
+# Also present at the repo root, but duplicated here so this app stays safe if
+# it is ever initialized as its own git repo — .env holds live database
+# credentials, the JWT secret, the Cloudinary secret, and the Gemini API key.
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+prisma/dev.db
+*.log

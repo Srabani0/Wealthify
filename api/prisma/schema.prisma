@@ -1,0 +1,449 @@
+generator client {
+  provider      = "prisma-client-js"
+  // "native" keeps local dev (Windows) working; rhel-openssl-3.0.x matches
+  // Vercel's serverless function runtime, which isn't the machine `generate`
+  // itself runs on.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Migrations run over the direct (non-pooled) connection — Neon's pgbouncer
+  // pooler can behave unpredictably for schema-changing DDL/shadow-database
+  // operations, which is what caused repeated P1001s during `migrate dev`.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum StockMovementType {
+  PURCHASE_IN
+  SALE_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  RETURN_IN
+  RETURN_OUT
+}
+
+enum OrderStatus {
+  READY
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderPaymentStatus {
+  PAID
+  UNPAID
+}
+
+enum OrderChannel {
+  INSTAGRAM
+  WHATSAPP
+  OFFLINE
+  OTHER
+}
+
+model Business {
+  id              String   @id @default(cuid())
+  name            String
+  legalName       String?
+  gstNumber       String?
+  address         String?
+  city            String?
+  state           String?
+  pincode         String?
+  phone           String?
+  email           String?
+  logoUrl         String?
+  logoPublicId    String?
+  currency        String   @default("INR")
+  defaultGstRate  Decimal  @default(18) @db.Decimal(5, 2)
+  invoicePrefix   String   @default("INV")
+  quotationPrefix String   @default("QUO")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users                User[]
+  categories           Category[]
+  brands               Brand[]
+  products             Product[]
+  stockMovements       StockMovement[]
+  suppliers            Supplier[]
+  rawMaterials         RawMaterial[]
+  rawMaterialPurchases RawMaterialPurchase[]
+  customers            Customer[]
+  orders               Order[]
+  billSequence         BillSequence?
+  expenses             Expense[]
+  copilotSessions      CopilotSession[]
+
+  @@map("businesses")
+}
+
+model User {
+  id                     String    @id @default(cuid())
+  businessId             String
+  business               Business  @relation(fields: [businessId], references: [id])
+  name                   String
+  email                  String    @unique
+  passwordHash           String
+  role                   Role      @default(STAFF)
+  isActive               Boolean   @default(true)
+  passwordResetTokenHash String?
+  passwordResetExpiresAt DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  copilotSessions        CopilotSession[]
+
+  @@index([businessId])
+  @@map("users")
+}
+
+model Category {
+  id         String     @id @default(cuid())
+  businessId String
+  business   Business   @relation(fields: [businessId], references: [id])
+  name       String
+  parentId   String?
+  parent     Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Category[] @relation("CategoryTree")
+  products   Product[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("categories")
+}
+
+model Brand {
+  id         String    @id @default(cuid())
+  businessId String
+  business   Business  @relation(fields: [businessId], references: [id])
+  name       String
+  products   Product[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("brands")
+}
+
+// Every Product has >=1 ProductVariant, even simple single-SKU items (an
+// auto-created "Default" variant) — this avoids a dual code path for
+// simple vs. variant products; inventory/orders/POs all reference
+// ProductVariant uniformly. `hasVariants` just drives whether the frontend
+// shows variant-management UI for this product.
+model Product {
+  id          String    @id @default(cuid())
+  businessId  String
+  business    Business  @relation(fields: [businessId], references: [id])
+  name        String
+  description String?
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandId     String?
+  brand       Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  hsnCode     String?
+  gstRate     Decimal   @default(18) @db.Decimal(5, 2)
+  unit        String    @default("PCS")
+  hasVariants Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  variants ProductVariant[]
+  images   ProductImage[]
+
+  @@index([businessId])
+  @@index([businessId, categoryId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id                String   @id @default(cuid())
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku               String   @unique
+  barcode           String?  @unique
+  variantName       String   @default("Default")
+  attributes        Json?
+  costPrice         Decimal  @db.Decimal(12, 2)
+  sellingPrice      Decimal  @db.Decimal(12, 2)
+  mrp               Decimal? @db.Decimal(12, 2)
+  marginPercent     Decimal? @db.Decimal(6, 2)
+  lowStockThreshold Int      @default(5)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  inventory      InventoryStock?
+  stockMovements StockMovement[]
+  orderItems     OrderItem[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model InventoryStock {
+  id               String         @id @default(cuid())
+  variantId        String         @unique
+  variant          ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantityOnHand   Int            @default(0)
+  quantityReserved Int            @default(0)
+  updatedAt        DateTime       @updatedAt
+
+  @@map("inventory_stock")
+}
+
+// Append-only audit log of every stock change. `referenceType`/`referenceId`
+// are a loose pointer (not FK) since future phases (Purchase Orders,
+// Orders) will point here without this table needing to know about them.
+model StockMovement {
+  id            String            @id @default(cuid())
+  businessId    String
+  business      Business          @relation(fields: [businessId], references: [id])
+  variantId     String
+  variant       ProductVariant    @relation(fields: [variantId], references: [id])
+  type          StockMovementType
+  quantity      Int
+  quantityAfter Int
+  reason        String?
+  referenceType String?
+  referenceId   String?
+  createdById   String?
+  createdAt     DateTime          @default(now())
+
+  @@index([businessId, variantId])
+  @@index([referenceType, referenceId])
+  @@map("stock_movements")
+}
+
+// Purely a financial log — no supplier ordering workflow, no outstanding
+// balance tracking, no stock-on-hand for raw materials. Just "what was
+// bought, when, and for how much," rolling up into a total-investment view.
+model Supplier {
+  id            String   @id @default(cuid())
+  businessId    String
+  business      Business @relation(fields: [businessId], references: [id])
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  purchases RawMaterialPurchase[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("suppliers")
+}
+
+model RawMaterial {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  name        String
+  defaultUnit String   @default("PCS")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchases RawMaterialPurchase[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@map("raw_materials")
+}
+
+model RawMaterialPurchase {
+  id            String      @id @default(cuid())
+  businessId    String
+  business      Business    @relation(fields: [businessId], references: [id])
+  rawMaterialId String
+  rawMaterial   RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  supplierId    String?
+  supplier      Supplier?   @relation(fields: [supplierId], references: [id])
+  purchaseDate  DateTime    @default(now())
+  quantity      Decimal     @db.Decimal(12, 3)
+  unit          String
+  pricePerUnit  Decimal     @db.Decimal(12, 2)
+  totalPrice    Decimal     @db.Decimal(12, 2)
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([businessId, purchaseDate])
+  @@index([businessId, rawMaterialId])
+  @@map("raw_material_purchases")
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  name       String
+  phone      String?
+  email      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([businessId])
+  @@map("customers")
+}
+
+// A manually-entered sales record — orders are placed elsewhere (Instagram,
+// WhatsApp, in-person) and logged here after the fact purely to track
+// revenue/profit and keep inventory in sync. No PO-style status pipeline,
+// no payment tracking. Logging an order decrements stock immediately;
+// cancelling restores it (see orders.service.ts) since there's no separate
+// returns flow yet.
+model Order {
+  id            String             @id @default(cuid())
+  businessId    String
+  business      Business           @relation(fields: [businessId], references: [id])
+  customerId    String?
+  customer      Customer?          @relation(fields: [customerId], references: [id])
+  orderDate     DateTime           @default(now())
+  channel       OrderChannel       @default(OFFLINE)
+  status        OrderStatus        @default(COMPLETED)
+  paymentStatus OrderPaymentStatus @default(UNPAID)
+  // Simple sequential reference number for the printable bill — not a
+  // GST-compliant invoice number (no FY reset/prefix), just "Bill #N".
+  // Nullable since it's assigned atomically going forward (see
+  // BillSequence/createOrder); orders from before this field existed have none.
+  billNumber    Int?
+  notes         String?
+  totalAmount   Decimal            @db.Decimal(12, 2)
+  totalProfit   Decimal            @db.Decimal(12, 2)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  items OrderItem[]
+
+  @@unique([businessId, billNumber])
+  @@index([businessId, orderDate])
+  @@index([businessId, customerId])
+  @@map("orders")
+}
+
+// One row per business, incremented atomically inside the order-creation
+// transaction to hand out the next bill number — same pattern the original
+// plan used for GST invoice numbering, minus the FY-awareness this doesn't need.
+model BillSequence {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id])
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@map("bill_sequences")
+}
+
+// unitPrice/costPrice are snapshotted at order time (not read live off
+// ProductVariant) — the variant's catalog price can change later, and this
+// line's profit calc must stay frozen to what was actually sold.
+model OrderItem {
+  id         String         @id @default(cuid())
+  orderId    String
+  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id])
+  quantity   Int
+  unitPrice  Decimal        @db.Decimal(12, 2)
+  costPrice  Decimal        @db.Decimal(12, 2)
+  lineTotal  Decimal        @db.Decimal(12, 2)
+  lineProfit Decimal        @db.Decimal(12, 2)
+  createdAt  DateTime       @default(now())
+
+  @@index([orderId])
+  @@index([variantId])
+  @@map("order_items")
+}
+
+// Free-text expense log (rent, utilities, packaging, etc.) — deliberately
+// no category taxonomy and no receipt upload, matching how lean every
+// other module in this app ended up. Separate from RawMaterialPurchase
+// (which tracks material cost specifically); this covers everything else.
+model Expense {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  expenseDate DateTime @default(now())
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId, expenseDate])
+  @@map("expenses")
+}
+
+model CopilotSession {
+  id           String               @id @default(cuid())
+  businessId   String
+  business     Business             @relation(fields: [businessId], references: [id])
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id])
+  title        String               @default("New Conversation")
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  messages     CopilotMessage[]
+  contextState CopilotContextState?
+
+  @@index([businessId, userId])
+  @@map("copilot_sessions")
+}
+
+model CopilotMessage {
+  id          String         @id @default(cuid())
+  sessionId   String
+  session     CopilotSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String         // "user" | "assistant" | "system" | "tool"
+  content     String?
+  toolCalls   Json?          // Array of tool requests
+  toolResults Json?          // Array of tool outputs
+  modelName   String?
+  tokensUsed  Int?
+  createdAt   DateTime       @default(now())
+
+  @@index([sessionId])
+  @@map("copilot_messages")
+}
+
+model CopilotContextState {
+  id                String         @id @default(cuid())
+  sessionId         String         @unique
+  session           CopilotSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  activeFilters     Json           // Stores last extracted filters: { category: "bouquet", month: "July" }
+  lastQueryEntityId String?        // Stores last target customerId, invoiceId, etc.
+  updatedAt         DateTime       @updatedAt
+
+  @@map("copilot_context_states")
+}
