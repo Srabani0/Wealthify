@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { pinoHttp } from "pino-http";
-import { env } from "./config/env.js";
+import { env, corsOrigins } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { notFoundMiddleware } from "./middleware/not-found.middleware.js";
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware.js";
@@ -26,7 +26,18 @@ import aiRoutes from "./modules/copilot/ai.routes.js";
 export const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      // No Origin header at all (curl, server-to-server, same-origin) — allow.
+      if (!origin) return callback(null, true);
+      if (corsOrigins.includes("*") || corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error(`Origin "${origin}" is not allowed by CORS_ORIGIN`));
+    },
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
 app.use(pinoHttp({ logger, autoLogging: env.NODE_ENV !== "test" }));
 

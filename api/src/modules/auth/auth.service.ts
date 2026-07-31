@@ -5,7 +5,7 @@ import type { LoginInput, RegisterInput, AuthUser } from "@wealthify/shared";
 import { prisma } from "../../config/prisma.js";
 import { signAuthToken } from "../../lib/jwt.js";
 import { sendEmail } from "../../lib/email.js";
-import { env } from "../../config/env.js";
+import { env, primaryOrigin } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
 import { ConflictError, UnauthorizedError, ValidationError } from "../../lib/errors.js";
 
@@ -94,7 +94,7 @@ export async function requestPasswordReset(email: string) {
     data: { passwordResetTokenHash: tokenHash, passwordResetExpiresAt: expiresAt },
   });
 
-  const resetUrl = `${env.CORS_ORIGIN}/reset-password?token=${rawToken}`;
+  const resetUrl = `${primaryOrigin}/reset-password?token=${rawToken}`;
 
   if (!env.BREVO_API_KEY || !env.BREVO_SENDER_EMAIL) {
     // Dev fallback: log the link so the flow is testable before Brevo is wired up.
