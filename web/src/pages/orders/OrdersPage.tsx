@@ -39,7 +39,13 @@ import {
   useDeleteCustomer,
   useUpdateCustomer,
 } from "@/features/customers/hooks";
-import { useCreateOrder, useOrderSummary, useOrders, useUpdateOrder } from "@/features/orders/hooks";
+import {
+  useCreateOrder,
+  useDeleteOrder,
+  useOrderSummary,
+  useOrders,
+  useUpdateOrder,
+} from "@/features/orders/hooks";
 import { getOrderBillBlob } from "@/features/orders/api";
 import { useProducts } from "@/features/products/hooks";
 import { getErrorMessage } from "@/lib/errors";
@@ -625,6 +631,7 @@ export function OrdersPage() {
   const [sortKey, setSortKey] = useState<OrderSortKey>("orderDate");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [pendingCancel, setPendingCancel] = useState<{ id: string; label: string } | null>(null);
+  const [pendingDeleteOrder, setPendingDeleteOrder] = useState<{ id: string; label: string } | null>(null);
   const [pendingDeleteCustomer, setPendingDeleteCustomer] = useState<{ id: string; name: string } | null>(
     null,
   );
@@ -633,6 +640,7 @@ export function OrdersPage() {
   const customers = useCustomers();
   const deleteCustomer = useDeleteCustomer();
   const updateOrder = useUpdateOrder();
+  const deleteOrder = useDeleteOrder();
   const products = useProducts({ page: 1, pageSize: 100 });
 
   const variantOptions = useMemo<VariantOption[]>(() => {
@@ -669,6 +677,17 @@ export function OrdersPage() {
         onError: (error) => toast.error(getErrorMessage(error, "Failed to cancel order")),
       },
     );
+  }
+
+  function confirmDeleteOrder() {
+    if (!pendingDeleteOrder) return;
+    deleteOrder.mutate(pendingDeleteOrder.id, {
+      onSuccess: () => {
+        toast.success("Order deleted");
+        setPendingDeleteOrder(null);
+      },
+      onError: (error) => toast.error(getErrorMessage(error, "Failed to delete order")),
+    });
   }
 
   function handleStatusChange(orderId: string, status: OrderStatusValue) {
@@ -980,6 +999,20 @@ export function OrdersPage() {
                           Cancel
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() =>
+                          setPendingDeleteOrder({
+                            id: order.id,
+                            label: `this order from ${new Date(order.orderDate).toLocaleDateString()}`,
+                          })
+                        }
+                      >
+                        <Trash2 className="mr-1 size-3.5" />
+                        Delete
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1069,6 +1102,16 @@ export function OrdersPage() {
         destructive
         isLoading={updateOrder.isPending}
         onConfirm={confirmCancel}
+      />
+      <ConfirmDialog
+        open={!!pendingDeleteOrder}
+        onOpenChange={(open) => !open && setPendingDeleteOrder(null)}
+        title={`Delete ${pendingDeleteOrder?.label}?`}
+        description="This permanently removes the order and its bill record. If it hasn't been cancelled yet, its stock is restored first. This can't be undone."
+        confirmLabel="Delete order"
+        destructive
+        isLoading={deleteOrder.isPending}
+        onConfirm={confirmDeleteOrder}
       />
       <ConfirmDialog
         open={!!pendingDeleteCustomer}

@@ -29,5 +29,6 @@ router.patch(
   validate(updateOrderSchema),
   asyncHandler(ordersController.updateOrder),
 );
+router.delete("/:id", requireRole("OWNER", "ADMIN"), asyncHandler(ordersController.deleteOrder));
 
 export default router;

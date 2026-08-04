@@ -35,6 +35,12 @@ export async function updateOrder(req: Request, res: Response) {
   sendSuccess(res, order, 200, input.status === "CANCELLED" ? "Order cancelled" : "Order updated");
 }
 
+export async function deleteOrder(req: Request, res: Response) {
+  const { businessId, userId } = requireUser(req);
+  await ordersService.deleteOrder(businessId, userId, req.params.id as string);
+  sendSuccess(res, null, 200, "Order deleted");
+}
+
 export async function getOrderSummary(req: Request, res: Response) {
   const query = req.query as unknown as OrderSummaryQueryInput;
   const summary = await ordersService.getOrderSummary(requireUser(req).businessId, query.from, query.to);

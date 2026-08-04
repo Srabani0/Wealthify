@@ -26,6 +26,10 @@ export async function updateOrder(id: string, input: UpdateOrderInput) {
   return data.data;
 }
 
+export async function deleteOrder(id: string) {
+  await api.delete(`/orders/${id}`);
+}
+
 export interface OrderSummaryParams {
   from?: Date;
   to?: Date;

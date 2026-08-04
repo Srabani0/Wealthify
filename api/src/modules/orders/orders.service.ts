@@ -439,6 +439,37 @@ export async function updateOrder(
   return fresh ? shapeOrder(fresh) : null;
 }
 
+export async function deleteOrder(businessId: string, userId: string, orderId: string) {
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, businessId },
+    include: { items: true },
+  });
+  if (!order) throw new NotFoundError("Order not found");
+
+  await prisma.$transaction(
+    async (tx) => {
+      // A cancelled order already had its stock restored (see updateOrder's
+      // cancel path) — only reverse it here if that hasn't happened yet, so
+      // deleting an active order can't leave stock permanently short.
+      if (order.status !== "CANCELLED") {
+        await reverseOrderItems(
+          tx,
+          businessId,
+          userId,
+          order.id,
+          order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity })),
+          "Order deleted",
+          "ORDER_DELETED",
+        );
+      }
+
+      // OrderItem rows cascade-delete with the order (see schema.prisma).
+      await tx.order.delete({ where: { id: orderId } });
+    },
+    { timeout: 15000 },
+  );
+}
+
 export async function getOrderSummary(businessId: string, from?: Date, to?: Date) {
   const where: Prisma.OrderWhereInput = {
     businessId,

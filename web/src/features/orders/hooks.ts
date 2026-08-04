@@ -45,3 +45,14 @@ export function useUpdateOrder() {
     onSuccess: () => invalidateOrderAndStockQueries(queryClient),
   });
 }
+
+export function useDeleteOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    // Deleting an order that hasn't been cancelled yet also restores its
+    // stock server-side, so this invalidates the same queries as
+    // create/update rather than just the order list.
+    mutationFn: ordersApi.deleteOrder,
+    onSuccess: () => invalidateOrderAndStockQueries(queryClient),
+  });
+}
